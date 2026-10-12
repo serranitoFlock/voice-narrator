@@ -21,7 +21,7 @@ jobs:
             name: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
         if: matrix.name == 'linux'
@@ -33,9 +33,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: lts/*
 
       - name: Install Tauri CLI
         run: npm install
@@ -50,9 +50,9 @@ jobs:
         run: npx tauri build
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: voice-pipeline-${{ matrix.name }}
+          name: voice-narrator-}
           path: |
             target/release/voice-speak
             target/release/voice-speak.exe
