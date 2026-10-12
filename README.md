@@ -1,8 +1,33 @@
-# VoiceToggle (cross-platform)
+# voice-pipeline (cross-platform)
 
-Tray app that controls the `~/voice-pipeline` text-to-speech pipeline. It is the
-Tauri v2 port of the macOS-only Swift app in `../VoiceToggleApp`, targeting
-macOS, Windows, and Linux from a single codebase.
+Cross-platform port of the `~/voice-pipeline` text-to-speech pipeline that
+narrates Claude Code responses, targeting macOS, Windows, and Linux from a
+single Rust codebase:
+
+- `core/` (`voice-core`): config, dictionary, text cleanup, dispatch queue,
+  dedup, TTS engines and audio. Builds the `voice-speak` binary that replaces
+  `scripts/speak.sh`, `say.sh`, `voice.sh` and `engine.sh`.
+- `src-tauri/` (`voice-toggle`): the tray app, a Tauri v2 port of the
+  macOS-only Swift app in `../VoiceToggleApp`.
+
+## voice-speak
+
+```sh
+voice-speak               # Claude Code hook: reads the payload on stdin
+voice-speak say "Hola"    # speak now
+voice-speak clean "text"  # show what the engine would receive
+voice-speak on|off|status
+voice-speak engine kokoro|piper|status
+```
+
+Hook configuration (`~/.claude/settings.json`), same events as `speak.sh`:
+`Stop`, `PostToolUse` (no matcher) and `PreToolUse` with matcher
+`AskUserQuestion`, each running the `voice-speak` binary with `async: true`.
+
+External requirements: Kokoro (`kokoro-venv` + `scripts/kokoro-say.py`) and/or
+Piper (`~/.local/bin/piper` or on `PATH`). `sox`, `afplay`, `lockf`, `perl` and
+BSD `sed` are no longer needed. Set `VOICE_PIPELINE_DIR` to use a pipeline
+directory other than `~/voice-pipeline`.
 
 ## Contract
 
@@ -51,6 +76,6 @@ Bundles must be built on each target OS (or in CI).
 
 - Linux: the tray uses AppIndicator/StatusNotifier. GNOME needs the
   "AppIndicator and KStatusNotifierItem Support" extension.
-- Windows/Linux: the TTS pipeline itself (`scripts/*.sh`, `afplay`) is still
-  macOS-only; porting it is a separate task.
+- Windows: the Kokoro venv is expected at `kokoro-venv/Scripts/python.exe`.
+- Linux: building needs the ALSA development package (`libasound2-dev`).
 - macOS: while the Swift app is running, its event tap consumes `⌃⌥⌘V` first.

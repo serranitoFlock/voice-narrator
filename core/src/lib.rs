@@ -1,5 +1,10 @@
-pub mod config;
+pub mod audio;
 pub mod clean;
+pub mod config;
 pub mod dedup;
-pub mod markers;
 pub mod dictionary;
+pub mod dispatcher;
+pub mod hook;
+pub mod markers;
+pub mod pipeline;
+pub mod tts;
