@@ -4,6 +4,7 @@
 //! Never fails: every error is logged and swallowed.
 
 use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
@@ -231,24 +232,78 @@ fn housekeeping(pipeline: &Pipeline) {
     trim_log(pipeline);
 }
 
-/// Drops hook.log lines older than the configured retention. Lines start
-/// with an ISO date, so a string comparison on the first 10 chars works.
+/// Drops hook.log entries older than the configured retention. Only the
+/// first dated line is read on the common path; the file is rewritten only
+/// when there is something to drop.
 fn trim_log(pipeline: &Pipeline) {
     let days = pipeline.config.retention_days(Retention::Log);
     let cutoff = (chrono::Local::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
     let path = pipeline.log_file();
+    let Ok(file) = File::open(&path) else {
+        return;
+    };
+    let oldest = BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|line| entry_date(&line).map(str::to_string));
+    if oldest.is_none_or(|date| date >= cutoff) {
+        return;
+    }
     let Ok(content) = fs::read_to_string(&path) else {
         return;
     };
-    if content.get(..10).is_none_or(|first| first >= cutoff.as_str()) {
-        return;
-    }
-    let kept: String = content
-        .split_inclusive('\n')
-        .filter(|line| line.get(..10).is_some_and(|date| date >= cutoff.as_str()))
-        .collect();
     let tmp = path.with_extension("log.tmp");
-    if fs::write(&tmp, kept).is_ok() {
+    if fs::write(&tmp, trim_log_content(&content, &cutoff)).is_ok() {
         let _ = fs::rename(&tmp, &path);
+    }
+}
+
+/// `YYYY-MM-DD` if the line starts a log entry.
+fn entry_date(line: &str) -> Option<&str> {
+    let date = line.get(..10)?;
+    let b = date.as_bytes();
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    (digits(0..4) && b[4] == b'-' && digits(5..7) && b[7] == b'-' && digits(8..10)).then_some(date)
+}
+
+/// Keeps entries dated on or after `cutoff`. Lines without a date (engine
+/// output, multi-line messages) belong to the entry above them.
+pub fn trim_log_content(content: &str, cutoff: &str) -> String {
+    let mut keep = false;
+    content
+        .split_inclusive('\n')
+        .filter(|line| {
+            if let Some(date) = entry_date(line) {
+                keep = date >= cutoff;
+            }
+            keep
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trim_keeps_recent_entries_with_their_continuation_lines() {
+        let log = "continuation of something old\n2026-01-01 00:00:00 old\nold detail\n2026-10-01 10:00:00 new\nnew detail\n2026-10-02 10:00:00 newer\n";
+        assert_eq!(
+            trim_log_content(log, "2026-09-01"),
+            "2026-10-01 10:00:00 new\nnew detail\n2026-10-02 10:00:00 newer\n"
+        );
+    }
+
+    #[test]
+    fn trim_keeps_everything_when_nothing_is_old() {
+        let log = "2026-10-01 10:00:00 a\nb\n";
+        assert_eq!(trim_log_content(log, "2026-09-01"), log);
+    }
+
+    #[test]
+    fn only_iso_dated_lines_start_an_entry() {
+        assert_eq!(entry_date("2026-10-12 13:00:00 x"), Some("2026-10-12"));
+        assert_eq!(entry_date("Dije que ..."), None);
+        assert_eq!(entry_date("WARNING:piper"), None);
     }
 }
