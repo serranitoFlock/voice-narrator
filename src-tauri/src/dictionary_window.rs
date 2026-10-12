@@ -4,8 +4,8 @@ use std::fs;
 
 use tauri::{AppHandle, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::config::Config;
-use crate::dictionary::{validate, Dictionary, EntryView};
+use voice_core::config::Config;
+use voice_core::dictionary::{validate, Dictionary, EntryView};
 
 const WINDOW_LABEL: &str = "dictionary";
 

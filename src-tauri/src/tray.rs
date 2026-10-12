@@ -12,7 +12,7 @@ use tauri::menu::{
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::config::{Config, Engine, Retention, State, KOKORO_VOICES, RETENTION_OPTIONS};
+use voice_core::config::{Config, Engine, Retention, State, KOKORO_VOICES, RETENTION_OPTIONS};
 
 const TRAY_ID: &str = "main";
 const POLL_INTERVAL: Duration = Duration::from_secs(2);

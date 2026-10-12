@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "tauri": "tauri",
-    "dev": "cargo run --manifest-path src-tauri/Cargo.toml",
-    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "dev": "cargo run -p voice-toggle",
+    "test": "cargo test --workspace",
     "build": "tauri build"
   },
   "devDependencies": {

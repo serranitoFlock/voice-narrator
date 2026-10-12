@@ -1,12 +1,10 @@
-pub mod config;
-pub mod dictionary;
 mod dictionary_window;
 mod tray;
 
 use tauri::RunEvent;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-use config::Config;
+use voice_core::config::Config;
 
 /// Control+Option+Command+V on macOS, Control+Alt+Win/Super+V elsewhere.
 fn toggle_shortcut() -> Shortcut {
