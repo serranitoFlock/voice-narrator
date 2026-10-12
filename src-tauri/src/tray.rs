@@ -11,7 +11,6 @@ use tauri::menu::{
 };
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
-use tauri_plugin_opener::OpenerExt;
 
 use crate::config::{Config, Engine, Retention, State, KOKORO_VOICES, RETENTION_OPTIONS};
 
@@ -87,7 +86,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
             return;
         }
         None if id == "dictionary" => {
-            open_dictionary(app, &config);
+            crate::dictionary_window::open(app);
             return;
         }
         None if id == "quit" => {
@@ -112,18 +111,6 @@ fn set_retention(config: &Config, kind: Retention, days: &str) -> std::io::Resul
     match days.parse() {
         Ok(days) => config.set_retention_days(kind, days),
         Err(_) => Ok(()),
-    }
-}
-
-fn open_dictionary<R: Runtime>(app: &AppHandle<R>, config: &Config) {
-    let path = config.dictionary_path();
-    // `.sed` has no default handler on macOS; force a text editor there.
-    #[cfg(target_os = "macos")]
-    let with = Some("TextEdit");
-    #[cfg(not(target_os = "macos"))]
-    let with: Option<&str> = None;
-    if let Err(err) = app.opener().open_path(path.to_string_lossy(), with) {
-        eprintln!("voice-toggle: could not open dictionary: {err}");
     }
 }
 

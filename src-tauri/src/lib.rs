@@ -1,4 +1,6 @@
 pub mod config;
+pub mod dictionary;
+mod dictionary_window;
 mod tray;
 
 use tauri::RunEvent;
@@ -22,7 +24,6 @@ fn pipeline_root() -> std::path::PathBuf {
 
 pub fn run() {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -32,6 +33,11 @@ pub fn run() {
                 })
                 .build(),
         )
+        .invoke_handler(tauri::generate_handler![
+            dictionary_window::dictionary_list,
+            dictionary_window::dictionary_save,
+            dictionary_window::dictionary_delete,
+        ])
         .manage(Config::new(pipeline_root()))
         .manage(tray::Rendered::default())
         .setup(|app| {

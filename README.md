@@ -26,8 +26,12 @@ in the menu.
 - Toggle voice from the menu or with the global shortcut: `⌃⌥⌘V` on macOS,
   `Ctrl+Alt+Win+V` on Windows, `Ctrl+Alt+Super+V` on Linux.
 - Pick engine, Kokoro voice, Piper voice, and cleanup retention.
-- "Editar diccionario..." opens `scripts/en-respellings.sed` in a text editor
-  (a native editor window is pending).
+- "Editar diccionario..." opens an editor window for
+  `scripts/en-respellings.sed`: click a row to edit it, add new words, delete
+  with a two-step confirmation. Words and respellings cannot contain `/` or
+  line breaks, since they would produce an invalid sed rule. Saving rewrites
+  the file with one block per word, sorted alphabetically; the header and
+  every rule's comment history are preserved.
 
 ## Development
 
@@ -36,7 +40,8 @@ Requires Rust (stable) and Node.js.
 ```sh
 npm install          # Tauri CLI, only needed for bundling
 npm run dev          # run the tray app
-npm test             # config contract tests
+npm test             # config and dictionary tests
+cargo test --manifest-path src-tauri/Cargo.toml -- --ignored  # round-trip of the real dictionary
 npm run build        # bundle (.app/.dmg, .msi/.exe, .deb/.AppImage)
 ```
 
