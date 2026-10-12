@@ -19,6 +19,9 @@ pub enum Kind {
     Block,
     /// The Stop hook's `last_assistant_message`, bundling the whole turn.
     Stop,
+    /// A transcript block from a turn that had already ended (a user prompt
+    /// follows it): it reached the transcript after that turn's Stop.
+    Late,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

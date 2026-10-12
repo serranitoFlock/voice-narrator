@@ -3,9 +3,11 @@
 //! motivated these rules). Scoped to the marker's own session and turn:
 //!
 //! - A turn is everything a session finalized after its latest Stop marker.
-//! - block: skipped if the exact text was already finalized in this turn, or
-//!   if it is a non-trivial piece of the previous Stop message (a block that
-//!   reached the transcript late and the Stop already said).
+//! - block: skipped if the exact text was already finalized in this turn.
+//!   As a backstop (if turn detection ever fails), also when it is a
+//!   non-trivial piece of the previous Stop message.
+//! - late (a block from a turn that already ended, see hook.rs): skipped if
+//!   the previous Stop message contained it, whatever its length.
 //! - stop: this turn's blocks are subtracted and only the remainder is said.
 
 use std::sync::OnceLock;
@@ -53,6 +55,12 @@ pub fn remaining(history: &[Finalized], ts: &str, session: &str, kind: Kind, tex
             static BLANKS: OnceLock<Regex> = OnceLock::new();
             let blanks = BLANKS.get_or_init(|| Regex::new(r"\n{3,}").unwrap());
             Some(blanks.replace_all(&rest, "\n\n").trim().to_string())
+        }
+        // Its turn already ended with a Stop that said everything the
+        // transcript lacked: skip whatever that Stop contained, any length.
+        Kind::Late => {
+            let said = turn.contains(&text) || last_stop.is_some_and(|stop| stop.text.contains(text));
+            (!said).then(|| text.to_string())
         }
         Kind::Block => {
             if turn.contains(&text) {
@@ -150,6 +158,23 @@ mod tests {
         let late = "Este párrafo llegó tarde al transcript.";
         assert_eq!(remaining(&h, "200", "s1", Kind::Block, late), None);
         assert_eq!(remaining(&h, "200", "s1", Kind::Block, "Listo.").as_deref(), Some("Listo."));
+    }
+
+    #[test]
+    fn a_late_block_of_any_length_said_by_the_previous_stop_is_skipped() {
+        let h = [
+            fin("100", "s1", Kind::Block, "Intro."),
+            fin("110", "s1", Kind::Stop, "Intro.\n\n**Verificado**\n\nmacOS.\n\n¿Lo pusheo?"),
+        ];
+        for late in ["**Verificado**", "macOS.", "¿Lo pusheo?"] {
+            assert_eq!(remaining(&h, "200", "s1", Kind::Late, late), None, "{late}");
+        }
+    }
+
+    #[test]
+    fn a_late_block_the_previous_stop_never_had_is_said() {
+        let h = [fin("110", "s1", Kind::Stop, "Otra cosa.")];
+        assert_eq!(remaining(&h, "200", "s1", Kind::Late, "Nunca dicho.").as_deref(), Some("Nunca dicho."));
     }
 
     #[test]

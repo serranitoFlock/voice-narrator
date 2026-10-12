@@ -115,26 +115,54 @@ fn question_text(tool_input: &Value) -> String {
         .join("\n\n")
 }
 
-/// Every assistant text block in the transcript, in order. Unreadable
-/// lines are skipped instead of discarding the whole transcript.
-fn transcript_blocks(path: &Path) -> Option<Vec<String>> {
+/// A transcript block plus whether its turn has already ended.
+struct Block {
+    text: String,
+    late: bool,
+}
+
+/// A user prompt or task notification starts a turn; tool results do not.
+fn starts_turn(entry: &Value) -> bool {
+    if entry.get("type").and_then(Value::as_str) != Some("user")
+        || entry.get("isMeta").and_then(Value::as_bool) == Some(true)
+    {
+        return false;
+    }
+    match entry.pointer("/message/content") {
+        Some(Value::String(_)) => true,
+        Some(Value::Array(items)) => {
+            !items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))
+        }
+        _ => false,
+    }
+}
+
+/// Every assistant text block in the transcript, in order. A block followed
+/// by the start of a new turn is `late`: when it shows up as new, it reached
+/// the transcript after its own turn's Stop already ran. Unreadable lines
+/// are skipped instead of discarding the whole transcript.
+fn transcript_blocks(path: &Path) -> Option<Vec<Block>> {
     let content = fs::read_to_string(path).ok()?;
-    Some(
-        content
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|entry| entry.get("type").and_then(Value::as_str) == Some("assistant"))
-            .flat_map(|entry| {
-                entry
-                    .pointer("/message/content")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-            })
-            .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
-            .filter_map(|item| item.get("text").and_then(Value::as_str).map(str::to_string))
-            .collect(),
-    )
+    let mut blocks: Vec<(String, usize)> = Vec::new();
+    let mut turn = 0;
+    for entry in content.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
+        if starts_turn(&entry) {
+            turn += 1;
+            continue;
+        }
+        if entry.get("type").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let items = entry.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
+        for item in items {
+            if item.get("type").and_then(Value::as_str) == Some("text") {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    blocks.push((text.to_string(), turn));
+                }
+            }
+        }
+    }
+    Some(blocks.into_iter().map(|(text, t)| Block { text, late: t < turn }).collect())
 }
 
 /// Queues the transcript text blocks this session has not looked at yet,
@@ -199,8 +227,9 @@ fn catch_up_new_blocks(pipeline: &Pipeline, markers: &Markers, payload: &Payload
     pipeline.log(&format!("catch-up: {} new block(s) for session {}", total - spoken, payload.session_id));
 
     for block in &blocks[spoken..] {
-        for line in block.split('\n') {
-            create_marker(pipeline, markers, payload, line, Kind::Block);
+        let kind = if block.late { Kind::Late } else { Kind::Block };
+        for line in block.text.split('\n') {
+            create_marker(pipeline, markers, payload, line, kind);
         }
     }
 }

@@ -22,6 +22,20 @@ fn env() -> Env {
     Env { _dir: dir, pipeline, transcript }
 }
 
+fn add_user_prompt(transcript: &Path, text: &str) {
+    let line = json!({"type": "user", "message": {"role": "user", "content": text}});
+    let mut existing = fs::read_to_string(transcript).unwrap();
+    existing.push_str(&format!("{line}\n"));
+    fs::write(transcript, existing).unwrap();
+}
+
+fn add_tool_result(transcript: &Path) {
+    let line = json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": "ok"}]}});
+    let mut existing = fs::read_to_string(transcript).unwrap();
+    existing.push_str(&format!("{line}\n"));
+    fs::write(transcript, existing).unwrap();
+}
+
 fn add_assistant_text(transcript: &Path, texts: &[&str]) {
     let content: Vec<_> = texts.iter().map(|t| json!({"type": "text", "text": t})).collect();
     let line = json!({"type": "assistant", "message": {"content": content}});
@@ -196,4 +210,36 @@ fn a_second_dispatcher_exits_while_one_holds_the_lock() {
     assert_eq!(pending_count(&env), 1);
     drop(lock);
     assert_eq!(drain(&env), vec!["Hola."]);
+}
+
+#[test]
+fn short_lines_of_a_late_final_message_are_not_repeated_next_turn() {
+    let env = env();
+    add_user_prompt(&env.transcript, "Hacé la tabla.");
+    post_tool_use(&env, "s1");
+    add_assistant_text(&env.transcript, &["Intro."]);
+    // The final message is not in the transcript yet when Stop fires.
+    let last = "**Verificado**\nmacOS.\n4,4 MB.\n¿Lo pusheo?";
+    stop(&env, "s1", &format!("Intro.\n\n{last}"));
+    assert_eq!(drain(&env), vec!["Intro.", "**Verificado**\nmacOS.\n4,4 MB.\n¿Lo pusheo?"]);
+
+    // Next turn: the late message lands before the new prompt, then new work.
+    add_assistant_text(&env.transcript, &[last]);
+    add_user_prompt(&env.transcript, "Dale.");
+    add_assistant_text(&env.transcript, &["Listo."]);
+    add_tool_result(&env.transcript);
+    post_tool_use(&env, "s1");
+    assert_eq!(drain(&env), vec!["Listo."]);
+}
+
+#[test]
+fn tool_results_do_not_end_a_turn() {
+    let env = env();
+    add_user_prompt(&env.transcript, "Arrancá.");
+    post_tool_use(&env, "s1");
+    add_assistant_text(&env.transcript, &["Primero."]);
+    add_tool_result(&env.transcript);
+    add_assistant_text(&env.transcript, &["Segundo."]);
+    post_tool_use(&env, "s1");
+    assert_eq!(drain(&env), vec!["Primero.", "Segundo."]);
 }
