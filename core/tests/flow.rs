@@ -22,6 +22,21 @@ fn env() -> Env {
     Env { _dir: dir, pipeline, transcript }
 }
 
+/// One API response as Claude Code writes it: one entry per content block.
+fn add_response(transcript: &Path, request: &str, blocks: &[(&str, &str)]) {
+    let mut existing = fs::read_to_string(transcript).unwrap();
+    for (i, (kind, text)) in blocks.iter().enumerate() {
+        let item = match *kind {
+            "thinking" => json!({"type": "thinking", "thinking": text, "signature": "sig"}),
+            "text" => json!({"type": "text", "text": text}),
+            _ => json!({"type": "tool_use", "id": "t", "name": "Bash", "input": {}}),
+        };
+        let line = json!({"type": "assistant", "requestId": request, "apiBlockIndex": i, "message": {"content": [item]}});
+        existing.push_str(&format!("{line}\n"));
+    }
+    fs::write(transcript, existing).unwrap();
+}
+
 fn add_user_prompt(transcript: &Path, text: &str) {
     let line = json!({"type": "user", "message": {"role": "user", "content": text}});
     let mut existing = fs::read_to_string(transcript).unwrap();
@@ -261,4 +276,27 @@ fn an_unclosed_code_fence_hides_the_rest_of_the_block() {
     add_assistant_text(&env.transcript, &["Mirá:\n```\nfn main() {}"]);
     post_tool_use(&env, "s1");
     assert_eq!(drain(&env), vec!["Mirá:"]);
+}
+
+#[test]
+fn visible_text_recorded_as_a_second_thinking_block_is_narrated() {
+    let env = env();
+    post_tool_use(&env, "s1");
+    add_response(&env.transcript, "r1", &[("thinking", ""), ("thinking", "Confirmo que Piper recibe los signos."), ("tool_use", "")]);
+    post_tool_use(&env, "s1");
+    assert_eq!(drain(&env), vec!["Confirmo que Piper recibe los signos."]);
+}
+
+#[test]
+fn real_reasoning_is_never_narrated() {
+    let env = env();
+    post_tool_use(&env, "s1");
+    // A lone thinking block with content, an empty second one, and a
+    // second one that belongs to another response.
+    add_response(&env.transcript, "r1", &[("thinking", "Razonamiento interno."), ("text", "Hola."), ("tool_use", "")]);
+    add_response(&env.transcript, "r2", &[("thinking", ""), ("thinking", ""), ("tool_use", "")]);
+    add_response(&env.transcript, "r3", &[("text", "Chau."), ("tool_use", "")]);
+    add_response(&env.transcript, "r4", &[("thinking", "Otro razonamiento."), ("tool_use", "")]);
+    post_tool_use(&env, "s1");
+    assert_eq!(drain(&env), vec!["Hola.", "Chau."]);
 }

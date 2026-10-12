@@ -145,6 +145,7 @@ fn transcript_blocks(path: &Path) -> Option<Vec<Block>> {
     let content = fs::read_to_string(path).ok()?;
     let mut blocks: Vec<(String, usize)> = Vec::new();
     let mut turn = 0;
+    let mut previous: Option<(String, String)> = None;
     for entry in content.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
         if starts_turn(&entry) {
             turn += 1;
@@ -153,13 +154,25 @@ fn transcript_blocks(path: &Path) -> Option<Vec<Block>> {
         if entry.get("type").and_then(Value::as_str) != Some("assistant") {
             continue;
         }
+        let request = entry.get("requestId").and_then(Value::as_str).unwrap_or_default().to_string();
         let items = entry.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
         for item in items {
-            if item.get("type").and_then(Value::as_str) == Some("text") {
-                if let Some(text) = item.get("text").and_then(Value::as_str) {
-                    blocks.push((text.to_string(), turn));
+            let kind = item.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
+            let text = match kind.as_str() {
+                "text" => item.get("text").and_then(Value::as_str),
+                // Claude Code sometimes records the visible text before a
+                // tool call as a second thinking block of the same response.
+                // Real reasoning is stored empty and never follows another
+                // thinking block, so only that exact shape is narrated.
+                "thinking" if !request.is_empty() && previous == Some((request.clone(), "thinking".to_string())) => {
+                    item.get("thinking").and_then(Value::as_str).filter(|t| !t.trim().is_empty())
                 }
+                _ => None,
+            };
+            if let Some(text) = text {
+                blocks.push((text.to_string(), turn));
             }
+            previous = Some((request.clone(), kind));
         }
     }
     Some(blocks.into_iter().map(|(text, t)| Block { text, late: t < turn }).collect())
@@ -180,7 +193,10 @@ fn catch_up_new_blocks(pipeline: &Pipeline, markers: &Markers, payload: &Payload
         return;
     }
 
-    let position_dir = pipeline.tmp().join("spoken-position");
+    // v2: the counter also includes visible text recorded as thinking
+    // blocks. A new directory makes every session baseline afresh instead of
+    // replaying the blocks the old counter never counted.
+    let position_dir = pipeline.tmp().join("spoken-position-v2");
     if fs::create_dir_all(&position_dir).is_err() {
         return;
     }
