@@ -11,6 +11,7 @@ use tauri::menu::{
 };
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_autostart::ManagerExt;
 
 use voice_core::config::{Config, Engine, Retention, State, KOKORO_VOICES, RETENTION_OPTIONS};
 
@@ -24,21 +25,35 @@ pub const HOTKEY_LABEL: &str = "Ctrl+Alt+Win+V";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 pub const HOTKEY_LABEL: &str = "Ctrl+Alt+Super+V";
 
-/// Last state rendered into the tray, to skip rebuilding an unchanged menu
-/// (rebuilding would close it if the user has it open).
+/// Everything the menu shows: the pipeline settings plus whether the app
+/// opens at login.
+#[derive(Clone, PartialEq, Eq)]
+struct Snapshot {
+    state: State,
+    autostart: bool,
+}
+
+/// Last snapshot rendered into the tray, to skip rebuilding an unchanged
+/// menu (rebuilding would close it if the user has it open).
 #[derive(Default)]
-pub struct Rendered(Mutex<Option<State>>);
+pub struct Rendered(Mutex<Option<Snapshot>>);
+
+fn snapshot<R: Runtime>(app: &AppHandle<R>) -> Snapshot {
+    Snapshot {
+        state: app.state::<Config>().state(),
+        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+    }
+}
 
 pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let config = app.state::<Config>();
-    let state = config.state();
+    let state = snapshot(app);
     let menu = build_menu(app, &state)?;
 
     let builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()));
-    apply_indicator(builder, state.disabled).build(app)?;
+    apply_indicator(builder, state.state.disabled).build(app)?;
 
     *app.state::<Rendered>().0.lock().unwrap() = Some(state);
     spawn_poller(app.clone());
@@ -47,7 +62,7 @@ pub fn create<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
 /// Re-render the tray if the on-disk state changed since the last render.
 pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
-    let state = app.state::<Config>().state();
+    let state = snapshot(app);
     let rendered = app.state::<Rendered>();
     let mut last = rendered.0.lock().unwrap();
     if last.as_ref() == Some(&state) {
@@ -57,7 +72,7 @@ pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
         if let Ok(menu) = build_menu(app, &state) {
             let _ = tray.set_menu(Some(menu));
         }
-        update_indicator(&tray, state.disabled);
+        update_indicator(&tray, state.state.disabled);
     }
     *last = Some(state);
 }
@@ -89,6 +104,14 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
             crate::dictionary_window::open(app);
             return;
         }
+        None if id == "autostart" => {
+            let autolaunch = app.autolaunch();
+            match autolaunch.is_enabled() {
+                Ok(true) => autolaunch.disable(),
+                _ => autolaunch.enable(),
+            }
+            .map_err(|e| std::io::Error::other(e.to_string()))
+        }
         None if id == "quit" => {
             app.exit(0);
             return;
@@ -114,7 +137,8 @@ fn set_retention(config: &Config, kind: Retention, days: &str) -> std::io::Resul
     }
 }
 
-fn build_menu<R: Runtime>(app: &AppHandle<R>, s: &State) -> tauri::Result<Menu<R>> {
+fn build_menu<R: Runtime>(app: &AppHandle<R>, snapshot: &Snapshot) -> tauri::Result<Menu<R>> {
+    let s = &snapshot.state;
     let status = MenuItemBuilder::with_id(
         "status",
         if s.disabled { "Voz: desactivada" } else { "Voz: activada" },
@@ -154,6 +178,8 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, s: &State) -> tauri::Result<Menu<R
         .item(&retention_menu(app, "Registro (hook.log)", "ret-log", s.log_retention_days)?)
         .build()?;
 
+    let autostart = check(app, "autostart", "Abrir al iniciar sesión", snapshot.autostart)?;
+
     let quit = MenuItemBuilder::with_id("quit", "Salir").build(app)?;
 
     MenuBuilder::new(app)
@@ -167,6 +193,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, s: &State) -> tauri::Result<Menu<R
         .item(&piper.build()?)
         .item(&dictionary)
         .item(&cleanup)
+        .item(&autostart)
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&quit)
         .build()

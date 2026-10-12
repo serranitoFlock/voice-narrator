@@ -15,4 +15,5 @@ tauri-build = { version = "2", features = [] }
 voice-core = { path = "../core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
 

@@ -20,8 +20,29 @@ fn pipeline_root() -> std::path::PathBuf {
         .join("voice-pipeline")
 }
 
+/// A tray app is expected to come back after login: turn autostart on the
+/// first time the app runs. Later choices from the menu are respected.
+fn enable_autostart_on_first_run<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    use tauri::Manager;
+    use tauri_plugin_autostart::ManagerExt;
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let flag = dir.join("autostart-initialized");
+    if flag.exists() {
+        return;
+    }
+    if let Err(err) = app.autolaunch().enable() {
+        eprintln!("voice-toggle: could not enable autostart: {err}");
+        return;
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(flag, b"");
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -43,6 +64,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            enable_autostart_on_first_run(app.handle());
             tray::create(app.handle())?;
 
             // A taken shortcut must not keep the tray from starting.

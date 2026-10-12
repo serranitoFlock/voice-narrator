@@ -58,6 +58,26 @@ in the menu.
   the file with one block per word, sorted alphabetically; the header and
   every rule's comment history are preserved.
 
+## Install (macOS)
+
+```sh
+npx tauri build --bundles app
+cp -R target/release/bundle/macos/VoiceToggle.app ~/Applications/
+cp target/release/voice-speak ~/voice-pipeline/bin/.voice-speak.new \
+  && mv -f ~/voice-pipeline/bin/.voice-speak.new ~/voice-pipeline/bin/voice-speak
+```
+
+Replace `voice-speak` with `mv`, never by copying over it: a dispatcher may be
+running from the old file. The tray app turns "Abrir al iniciar sesión" on the
+first time it runs (a LaunchAgent on macOS, the registry on Windows, an XDG
+autostart entry on Linux); the menu item turns it off again.
+
+## CI
+
+`.github/workflows/build.yml` tests and builds on macOS, Windows and Linux,
+and uploads `voice-speak` plus the tray bundles (`.dmg`, `.msi`/setup `.exe`,
+`.deb`/`.AppImage`) as artifacts.
+
 ## Development
 
 Requires Rust (stable) and Node.js.
