@@ -36,6 +36,7 @@ pub fn clean_for_tts(text: &str, respellings: Option<&Dictionary>) -> String {
     let text = regex!(r"`([^`\n]*)`").replace_all(&text, |c: &Captures| resolve_backtick(&c[1]));
     let text = regex!(r"\*\*").replace_all(&text, "");
     let text = regex!(r"__").replace_all(&text, "");
+    let text = speak_table_rows(&text);
     let text = regex!(r"(?m)^###+ ").replace_all(&text, "");
     let text = regex!(r"(?m)^## ").replace_all(&text, "");
     let text = regex!(r"(?m)^[^\S\n]*[-*][^\S\n]+").replace_all(&text, "");
@@ -50,6 +51,48 @@ pub fn clean_for_tts(text: &str, respellings: Option<&Dictionary>) -> String {
         Some(dict) => apply_respellings(&text, dict),
         None => text.into_owned(),
     }
+}
+
+/// Markdown table rows (lines starting with `|`): every cell ends with a
+/// period, so each column becomes its own sentence and gets a pause.
+/// Separator rows (`|---|:---:|`) are dropped and empty cells skipped.
+fn speak_table_rows(text: &str) -> String {
+    text.split('\n').map(|line| table_row(line).unwrap_or_else(|| line.to_string())).collect::<Vec<_>>().join("\n")
+}
+
+fn table_row(line: &str) -> Option<String> {
+    if !line.trim_start().starts_with('|') {
+        return None;
+    }
+    // Split on unescaped pipes; `\|` is a literal pipe inside a cell.
+    let mut cells = vec![String::new()];
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                cells.last_mut().unwrap().push('|');
+                chars.next();
+            }
+            '|' => cells.push(String::new()),
+            _ => cells.last_mut().unwrap().push(c),
+        }
+    }
+    let cells: Vec<&str> = cells.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).collect();
+    if cells.iter().all(|c| regex!(r"^:?-+:?$").is_match(c)) {
+        return Some(String::new());
+    }
+    let spoken: Vec<String> = cells
+        .iter()
+        .map(|cell| {
+            let cell = cell.trim_end_matches([',', ';', ':']).trim_end();
+            if cell.ends_with(['.', '!', '?']) {
+                cell.to_string()
+            } else {
+                format!("{cell}.")
+            }
+        })
+        .collect();
+    Some(spoken.join(" "))
 }
 
 /// Applies every sed rule of the dictionary in file order. Rules are plain
@@ -192,6 +235,38 @@ mod tests {
     }
 
     #[test]
+    fn table_cells_end_with_a_period() {
+        assert_eq!(clean_for_tts("| Sistema | Tamaño | Contenido |", None), "Sistema. Tamaño. Contenido.");
+        assert_eq!(clean_for_tts("| **macOS** | 4,4 MB | `voice-speak` |", None), "macOS. 4,4 MB. voice-speak.");
+    }
+
+    #[test]
+    fn table_separator_rows_are_dropped() {
+        assert_eq!(clean_for_tts("| a | b |\n|---|:---:|\n| c | d |", None), "a. b.\n\nc. d.");
+    }
+
+    #[test]
+    fn table_cells_keep_their_own_final_punctuation_and_skip_empty_ones() {
+        assert_eq!(clean_for_tts("| ¿Listo? | **Sí.** |  | Fin: |", None), "¿Listo? Sí. Fin.");
+    }
+
+    #[test]
+    fn table_cells_keep_escaped_pipes() {
+        assert_eq!(clean_for_tts(r"| a \| b | c |", None), "a | b. c.");
+    }
+
+    #[test]
+    fn lines_not_starting_with_a_pipe_are_not_tables() {
+        assert_eq!(clean_for_tts("elegí a | b", None), "elegí a | b");
+    }
+
+    #[test]
+    fn table_columns_become_separate_sentences() {
+        let clean = clean_for_tts("| macOS | 4,4 MB | dmg |", None);
+        assert_eq!(split_sentences(&clean), vec!["macOS.", "4,4 MB.", "dmg."]);
+    }
+
+    #[test]
     fn splits_sentences_per_line() {
         assert_eq!(split_sentences("Uno. Dos! Tres"), vec!["Uno.", "Dos!", "Tres"]);
         assert_eq!(split_sentences("A.\n\nB"), vec!["A.", "\nB"]);
@@ -218,10 +293,17 @@ mod tests {
             .join("voice-pipeline/scripts/en-respellings.sed");
         let dict = Dictionary::parse(&std::fs::read_to_string(dict_path).unwrap());
         let mut total = 0;
+        let mut skipped = 0;
         let mut mismatches = Vec::new();
         for line in std::fs::read_to_string(path).unwrap().lines() {
             let row: serde_json::Value = serde_json::from_str(line).unwrap();
             let text = row["text"].as_str().unwrap();
+            // Tables are read column by column on purpose (bash read rows
+            // as one run-on line): those texts are not expected to match.
+            if text.lines().any(|l| l.trim_start().starts_with('|')) {
+                skipped += 1;
+                continue;
+            }
             let expected_clean = row["clean"].as_str().unwrap();
             let expected: Vec<String> = serde_json::from_value(row["sentences"].clone()).unwrap();
             let clean = clean_for_tts(text, Some(&dict));
@@ -237,7 +319,7 @@ mod tests {
         for (text, expected, actual) in mismatches.iter().take(3) {
             println!("--- text: {:?}\n--- bash: {:?}\n--- rust: {:?}", &text[..text.len().min(300)], &expected[..expected.len().min(300)], &actual[..actual.len().min(300)]);
         }
-        println!("{} of {total} texts differ", mismatches.len());
+        println!("{} of {total} texts differ ({skipped} with tables skipped)", mismatches.len());
         assert!(mismatches.is_empty());
     }
 }
