@@ -228,7 +228,9 @@ fn catch_up_new_blocks(pipeline: &Pipeline, markers: &Markers, payload: &Payload
 
     for block in &blocks[spoken..] {
         let kind = if block.late { Kind::Late } else { Kind::Block };
-        for line in block.text.split('\n') {
+        // Fenced code is never read: drop it before the per-line split,
+        // which would otherwise hide the fences from clean_for_tts.
+        for line in crate::clean::prose_lines(&block.text) {
             create_marker(pipeline, markers, payload, line, kind);
         }
     }

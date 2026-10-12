@@ -49,6 +49,7 @@ pub fn remaining(history: &[Finalized], ts: &str, session: &str, kind: Kind, tex
             for block in blocks {
                 rest = rest.replacen(block, "", 1);
             }
+            let rest = crate::clean::prose_lines(&rest).join("\n");
             if meaningful_len(&rest) == 0 {
                 return None;
             }
@@ -175,6 +176,13 @@ mod tests {
     fn a_late_block_the_previous_stop_never_had_is_said() {
         let h = [fin("110", "s1", Kind::Stop, "Otra cosa.")];
         assert_eq!(remaining(&h, "200", "s1", Kind::Late, "Nunca dicho.").as_deref(), Some("Nunca dicho."));
+    }
+
+    #[test]
+    fn a_stop_whose_only_remainder_is_code_says_nothing() {
+        let h = [fin("100", "s1", Kind::Block, "Corré esto:")];
+        let stop = "Corré esto:\n\n```bash\ncargo test\n```";
+        assert_eq!(remaining(&h, "200", "s1", Kind::Stop, stop), None);
     }
 
     #[test]

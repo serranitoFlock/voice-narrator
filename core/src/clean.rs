@@ -53,6 +53,23 @@ pub fn clean_for_tts(text: &str, respellings: Option<&Dictionary>) -> String {
     }
 }
 
+/// Lines outside fenced code blocks (``` or ~~~), fences included. An
+/// unclosed fence hides everything after it. Works per line, so it holds
+/// even when a block is split into one marker per line.
+pub fn prose_lines(text: &str) -> Vec<&str> {
+    let mut in_fence = false;
+    text.split('\n')
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                in_fence = !in_fence;
+                return false;
+            }
+            !in_fence
+        })
+        .collect()
+}
+
 /// Markdown table rows (lines starting with `|`): every cell ends with a
 /// period, so each column becomes its own sentence and gets a pause.
 /// Separator rows (`|---|:---:|`) are dropped and empty cells skipped.
@@ -264,6 +281,12 @@ mod tests {
     fn table_columns_become_separate_sentences() {
         let clean = clean_for_tts("| macOS | 4,4 MB | dmg |", None);
         assert_eq!(split_sentences(&clean), vec!["macOS.", "4,4 MB.", "dmg."]);
+    }
+
+    #[test]
+    fn prose_lines_skip_fenced_code() {
+        assert_eq!(prose_lines("a\n```rust\nx\n```\nb\n~~~\ny\n~~~\nc"), vec!["a", "b", "c"]);
+        assert_eq!(prose_lines("a\n  ```\nopen"), vec!["a"]);
     }
 
     #[test]

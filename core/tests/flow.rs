@@ -243,3 +243,22 @@ fn tool_results_do_not_end_a_turn() {
     post_tool_use(&env, "s1");
     assert_eq!(drain(&env), vec!["Primero.", "Segundo."]);
 }
+
+#[test]
+fn code_blocks_are_never_read_line_by_line() {
+    let env = env();
+    post_tool_use(&env, "s1");
+    let block = "Corré esto:\n\n```bash\ncargo test\nls -la\n```\n\nY después esto:\n~~~\necho hola\n~~~\nListo.";
+    add_assistant_text(&env.transcript, &[block]);
+    stop(&env, "s1", block);
+    assert_eq!(drain(&env), vec!["Corré esto:", "Y después esto:", "Listo."]);
+}
+
+#[test]
+fn an_unclosed_code_fence_hides_the_rest_of_the_block() {
+    let env = env();
+    post_tool_use(&env, "s1");
+    add_assistant_text(&env.transcript, &["Mirá:\n```\nfn main() {}"]);
+    post_tool_use(&env, "s1");
+    assert_eq!(drain(&env), vec!["Mirá:"]);
+}
