@@ -1,14 +1,14 @@
-# voice-pipeline (cross-platform)
+# voice-narrator
 
-Cross-platform port of the `~/voice-pipeline` text-to-speech pipeline that
-narrates Claude Code responses, targeting macOS, Windows, and Linux from a
+Narrates Claude Code responses out loud. Cross-platform port of the
+`~/voice-pipeline` text-to-speech pipeline, targeting macOS, Windows, and Linux from a
 single Rust codebase:
 
 - `core/` (`voice-core`): config, dictionary, text cleanup, dispatch queue,
   dedup, TTS engines and audio. Builds the `voice-speak` binary that replaces
   `scripts/speak.sh`, `say.sh`, `voice.sh` and `engine.sh`.
 - `src-tauri/` (`voice-toggle`): the tray app, a Tauri v2 port of the
-  macOS-only Swift app in `../VoiceToggleApp`.
+  macOS-only Swift app in `~/voice-pipeline/VoiceToggleApp`.
 
 ## voice-speak
 
@@ -77,6 +77,13 @@ autostart entry on Linux); the menu item turns it off again.
 `.github/workflows/build.yml` tests and builds on macOS, Windows and Linux,
 and uploads `voice-speak` plus the tray bundles (`.dmg`, `.msi`/setup `.exe`,
 `.deb`/`.AppImage`) as artifacts.
+
+## Runtime directory
+
+The code lives in this repository; the pipeline's runtime data does not.
+`~/voice-pipeline` keeps the settings dotfiles, the respelling dictionary
+(`scripts/en-respellings.sed`), the Kokoro/Piper models, the dispatch queue
+and `hook.log`, plus the `voice-speak` binary the hooks run (`bin/`).
 
 ## Development
 
