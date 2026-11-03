@@ -33,7 +33,13 @@ macro_rules! regex {
 /// dictionary (pass `None` to skip it).
 pub fn clean_for_tts(text: &str, respellings: Option<&Dictionary>) -> String {
     let text = regex!(r"(?s)```.*?```").replace_all(text, "");
+    // Markdown links and images read only their visible title, never the URL.
+    let text = regex!(r#"!?\[([^\]\n]*)\]\([^)\s]*(?:[^\S\n]+"[^"\n]*")?\)"#).replace_all(&text, "$1");
     let text = regex!(r"`([^`\n]*)`").replace_all(&text, |c: &Captures| resolve_backtick(&c[1]));
+    // Bare URLs are not read: a parenthesized one goes with its parentheses.
+    let text = regex!(r"[^\S\n]*\(<?(?:https?|ftp)://[^)\s]*>?\)").replace_all(&text, "");
+    let text = regex!(r"<(?:https?|ftp)://[^>\s]*>").replace_all(&text, "");
+    let text = regex!(r"\b(?:(?:https?|ftp)://|www\.)[^\s<>)\]]*[^\s<>)\].,;:!?]").replace_all(&text, "");
     let text = regex!(r"\*\*").replace_all(&text, "");
     let text = regex!(r"__").replace_all(&text, "");
     let text = speak_table_rows(&text);
@@ -249,6 +255,24 @@ mod tests {
             "# h\n\ns/[[:<:]]Hook[[:>:]]/Juk/g\ns/[[:<:]]hook[[:>:]]/juk/g\n",
         );
         assert_eq!(apply_respellings("el hook y Hooks, hook.", &dict), "el juk y Hooks, juk.");
+    }
+
+    #[test]
+    fn markdown_links_read_only_their_title() {
+        assert_eq!(
+            clean_for_tts("- [JustWatch – búsqueda](https://www.justwatch.com/ar/buscar?q=x)", None),
+            "JustWatch – búsqueda"
+        );
+        assert_eq!(clean_for_tts("Ver [la guía](https://x.com/g \"t\") y ![logo](a.png).", None), "Ver la guía y logo.");
+        assert_eq!(clean_for_tts("Mirá [`voice-speak`](https://x.com/v).", None), "Mirá voice-speak.");
+    }
+
+    #[test]
+    fn bare_urls_are_not_read() {
+        assert_eq!(clean_for_tts("O directo: https://example.com/a/b?x=1&y=2 para más.", None), "O directo: para más.");
+        assert_eq!(clean_for_tts("Ver la doc en <https://docs.github.com/en>.", None), "Ver la doc en.");
+        assert_eq!(clean_for_tts("Entrá a www.example.com, después seguí.", None), "Entrá a, después seguí.");
+        assert_eq!(clean_for_tts("Fuente (https://x.com/a) acá.", None), "Fuente acá.");
     }
 
     #[test]
